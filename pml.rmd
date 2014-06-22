@@ -1,0 +1,109 @@
+Weight Lifting Style Prediction
+========================================================
+
+# 1. Goal
+
+Devices like accelerometers etc collect good amount of data, which can be used to measure the accuracy of human exercises. The goal of this exercise is to build a model to automatically predict the maaner in which humans do the exercise using the [training data](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv). More details about the data can be found [here](http://groupware.les.inf.puc-rio.br/har).
+
+# 2. Analysis
+
+## 2.1 Data Preparation
+- Load the required libraries, training and test data
+```{r message=FALSE}
+  require(caret)
+  require(ggplot2)
+  require(corrplot)
+  require(randomForest)
+
+  set.seed(1234)
+  tr <- read.csv("pml-training.csv", header=TRUE)
+  origtest <- read.csv("pml-testing.csv", header=TRUE)
+```
+*Training and Test set has `r paste(nrow(tr))` and `r paste(nrow(origtest))` observations respectively over `r paste(ncol(tr))` predictors.*
+
+- Divide the training set into training and crossvalidation set
+```{r}
+  trindx <- createDataPartition(tr$classe, p=0.7, list=FALSE)
+  training <- tr[trindx,]
+  testing <- tr[-trindx,]
+```
+*Observations in training and testing set are `r paste(nrow(training))` and `r paste(nrow(testing))` respectively.*
+
+- Remove the predictors with non-zero variance
+```{r}
+  nzv <- nearZeroVar(training)
+  training <- training[-nzv]
+  testing <- testing[-nzv]
+  origtest <- origtest[-nzv]
+```
+* `r paste(length(nzv))` predictors removed*
+
+- Get only numeric features. All other integer and non-numeric features were ignored as they were causing miscalssification in the final model.
+```{r}
+  num_features <- which(lapply(training,class) %in% c('numeric'))
+```
+*`r paste(length(num_features))` numeric predictors retained out of `r paste(ncol(training))` predictors*
+
+- As there are missing values in the data set, we would like to impute the missing values.
+```{r}
+  imputemodel <- preProcess(training[,num_features], method=c('bagImpute'))
+  num_training <- predict(imputemodel, training[,num_features])
+  num_testing <- predict(imputemodel, testing[,num_features])
+  num_origtest <- predict(imputemodel, origtest[,num_features])
+```
+
+- Remove the highly correlated predictors(0.95).
+```{r}
+  correlation <- cor(num_training)
+  highCorr <- findCorrelation(correlation, cutoff = .95) 
+  # remove the highly correlated variables
+  training <- cbind(training$classe, num_training[,-highCorr])
+  testing <- cbind(testing$classe, num_testing[,-highCorr])
+  names(training)[1] <- 'classe'
+  names(testing)[1] <- 'classe'
+  origtest <- num_origtest[,-highCorr]
+  corrplot(correlation, ,order = "hclust",tl.cex = .5)
+```
+
+Finally we have preprocessed data which is good for training the model.
+
+## 2.2 Model Training
+
+We will use the random forest method for training. Following are the steps involved:
+
+- Train a random forest on the given data.
+```{r}
+  fit <- randomForest(classe~., training)
+  print(fit)
+```
+
+# 3. Model Accuracy
+
+We can measure the model accuracy using our training and cross-validation set. Training set accuracy will determine if we have high bias and cross-validation set will define if we have high variance.
+
+## 3.1 In-Sample Accuracy
+
+```{r}
+tr_pred <- predict(fit, training)
+print(confusionMatrix(tr_pred, training$classe))
+```
+- The in-sample accuracy is 100% which indicates that model does not suffer from bias
+
+## 3.1 Out-of-Sample Accuracy
+```{r}
+ts_pred <- predict(fit, testing)
+print(confusionMatrix(ts_pred, testing$classe))
+```
+- The Out-of-sample accuracy is greater than 99%, which should be sufficient for predicting the blind set of 20 observations.
+
+# 4. Test set prediction
+
+Applying the trained model on the test data, here are the predictions from the model
+
+```{r}
+answers <- predict(fit, origtest)
+answers
+```
+
+# 5. Conclusion
+We are able to provide very good prediction of weight lifting style as measured with accelerometers.
